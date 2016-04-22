@@ -22,7 +22,7 @@
     self.testImage = [UIImage imageNamed:@"1.jpg"];
     
     // UIImage -> RGBA
-    [self getRGBAWithImage:self.testImage];
+    unsigned char * rbga_data = [self getRGBAWithImage:self.testImage];
     
     // 获取一张图片中某个Pixel的RGBA值
     [self getRGBAFromImage:self.testImage atX:0 andY:0];
@@ -33,7 +33,101 @@
     // UIImage -> BRG
     [self getBGRWithImage:self.testImage];
     
+    // GBGA -> UIImage
+    UIImage * rbga_image = [self convertBitmapRGBA8ToUIImage:rbga_data withWidth:self.testImage.size.width withHeight:self.testImage.size.height];
+    UIImageView * rbga_imageView = [[UIImageView alloc] initWithImage:rbga_image];
+    [rbga_imageView setFrame:CGRectMake(50, 50, 100, 100)];
+    [self.view addSubview:rbga_imageView];
+    
 }
+
+#pragma mark - RBGA -> UIImage
+- (UIImage *) convertBitmapRGBA8ToUIImage:(unsigned char *) buffer
+                                withWidth:(int) width
+                               withHeight:(int) height {
+    int RBGA = 4;
+    
+    size_t bufferLength = width * height * RBGA;
+    CGDataProviderRef provider = CGDataProviderCreateWithData(NULL, buffer, bufferLength, NULL);
+    size_t bitsPerComponent = 8;
+    size_t bitsPerPixel = 32;
+    size_t bytesPerRow = RBGA * width;
+    
+    CGColorSpaceRef colorSpaceRef = CGColorSpaceCreateDeviceRGB();
+    if(colorSpaceRef == NULL) {
+        NSLog(@"Error allocating color space");
+        CGDataProviderRelease(provider);
+        return nil;
+    }
+    
+    CGBitmapInfo bitmapInfo = kCGBitmapByteOrderDefault;
+    CGColorRenderingIntent renderingIntent = kCGRenderingIntentDefault;
+    
+    CGImageRef iref = CGImageCreate(width,
+                                    height,
+                                    bitsPerComponent,
+                                    bitsPerPixel,
+                                    bytesPerRow,
+                                    colorSpaceRef,
+                                    bitmapInfo,
+                                    provider,	// data provider
+                                    NULL,		// decode
+                                    YES,			// should interpolate
+                                    renderingIntent);
+    
+    uint32_t* pixels = (uint32_t*)malloc(bufferLength);
+    
+    if(pixels == NULL) {
+        NSLog(@"Error: Memory not allocated for bitmap");
+        CGDataProviderRelease(provider);
+        CGColorSpaceRelease(colorSpaceRef);
+        CGImageRelease(iref);
+        return nil;
+    }
+    
+    CGContextRef context = CGBitmapContextCreate(pixels,
+                                                 width,
+                                                 height,
+                                                 bitsPerComponent,
+                                                 bytesPerRow,
+                                                 colorSpaceRef,
+                                                 kCGImageAlphaPremultipliedLast);
+    
+    if(context == NULL) {
+        NSLog(@"Error context not created");
+        free(pixels);
+    }
+    
+    UIImage *image = nil;
+    if(context) {
+        
+        CGContextDrawImage(context, CGRectMake(0.0f, 0.0f, width, height), iref);
+        
+        CGImageRef imageRef = CGBitmapContextCreateImage(context);
+        
+        // Support both iPad 3.2 and iPhone 4 Retina displays with the correct scale
+        if([UIImage respondsToSelector:@selector(imageWithCGImage:scale:orientation:)]) {
+            float scale = [[UIScreen mainScreen] scale];
+            image = [UIImage imageWithCGImage:imageRef scale:scale orientation:UIImageOrientationUp];
+        } else {
+            image = [UIImage imageWithCGImage:imageRef];
+        }
+        
+        CGImageRelease(imageRef);	
+        CGContextRelease(context);	
+    }
+    
+    CGColorSpaceRelease(colorSpaceRef);
+    CGImageRelease(iref);
+    CGDataProviderRelease(provider);
+    
+    if(pixels) {
+        free(pixels);
+    }	
+    return image;
+}
+
+#pragma mark - UIImage -> BGR
 - (unsigned char *)getBGRWithImage:(UIImage *)image
 {
     int RGBA = 4;
